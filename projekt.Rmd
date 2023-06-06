@@ -1,0 +1,195 @@
+---
+title: "Regresja i analiza wariancji - Projekt"
+author:
+  name: Paulina Wróblewska
+subtitle: coś wymyślę 
+---
+```{r}
+#install.packages("reshape2")
+#install.packages("corrplot")
+#install.packages("robustbase")
+#install.packages("pROC")
+#install.packages('lime')
+```
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(cache = TRUE, warning = TRUE, message = FALSE)
+library(tidyverse)  
+# Wczytywanie pakietów
+library(agricolae)
+library(readr)
+library(ggplot2)
+library(multcomp)
+library(reshape2)
+library(robustbase)
+library(corrplot)
+library(dplyr)
+library(pROC)
+library(RColorBrewer)
+library(lime)
+``` 
+
+```{r}
+date <- readr::read_csv('lol_ranked_games.csv')
+head(date)
+```
+
+```{r}
+summary(date)
+```
+
+```{r}
+# Wybór niezbędnych kolumn
+data_selected <- date[c("wardsPlaced", "wardsDestroyed", "wardsLost", "hasWon")]
+head(data_selected)
+```
+```{r}
+# Wyświietlenie informacji o naszych wybranych kolumnach
+summary(data_selected)
+```
+
+
+```{r}
+# Podział danych na zbiór treningowy i testowy
+set.seed(42)  # Ustawienie ziarna losowości dla powtarzalności wyników
+train_idx <- sample(1:nrow(data_selected), nrow(data_selected)*0.7)  # 70% danych jako zbiór treningowy
+X_train <- data_selected[train_idx, 1:3]  # Wybór kolumn zmiennych niezależnych
+y_train <- data_selected[train_idx, 4]  # Wybór kolumny zmiennej zależnej
+X_test <- data_selected[-train_idx, 1:3]
+y_test <- data_selected[-train_idx, 4]
+```
+
+```{r}
+# Dopasowanie modelu regresji logistycznej
+model <- glm(hasWon ~ ., data = cbind(X_train, y_train), family = "binomial")
+```
+
+```{r}
+# Wyświetlenie informacji o zbudowanym modelu
+summary(model)
+```
+
+```{r}
+# Predykcja na zbiorze testowym
+y_pred <- predict(model, newdata = X_test, type = "response")
+y_pred <- ifelse(y_pred >= 0.5, 1, 0)
+```
+
+```{r}
+# Obliczenie dokładności predykcji
+accuracy <- mean(y_pred == y_test)
+print(paste("Dokładność predykcji:", accuracy))
+```
+
+```{r}
+# Tworzenie wykresu korelacji z wybranych zmiennych
+corrplot(cor_matrix_all, method = "color", type = "upper", tl.col = "black")
+```
+
+```{r}
+# Macierz korelacji z wybranych zmiennych
+cor_matrix <- cor(data_selected)
+# Wyświetlenie macierzy korelacji z wybranych zmiennych
+print(cor_matrix)
+```
+
+```{r}
+# Tworzenie wykresu korelacji z wybranych zmiennych
+corrplot(cor_matrix, method = "color", type = "upper", tl.col = "black")
+```
+
+```{R}
+# Histogram odnośnie ilości zniszczonych wardów
+ggplot(data_selected, aes(x = wardsDestroyed)) +
+  geom_histogram()
+```
+
+
+
+```{R}
+ggplot(data_selected, aes(x = factor(hasWon), y = wardsPlaced)) +
+  geom_point() +
+  geom_point(aes(y = wardsDestroyed), color = "red") 
+```
+
+
+
+```{r}
+# Wykres rozrzutu - wardsPlaced vs. wardsDestroyed
+plot(data_selected$wardsPlaced, data_selected$wardsDestroyed, 
+     main = "Wykres rozrzutu - wardsPlaced vs. wardsDestroyed",
+     xlab = "wardsPlaced", ylab = "wardsDestroyed")
+```
+
+```{r}
+# Tworzenie kolorów dla różnych wartości zmiennej "hasWon"
+colors <- c("blue", "red")
+
+# Wykres pudełkowy z dodanymi kolorami
+boxplot(wardsDestroyed ~ hasWon, data = data_selected, 
+        main = "Wykres pudełkowy - wardsDestroyed z podziałem na hasWon",
+        xlab = "hasWon", ylab = "wardsDestroyed",
+        col = colors)
+
+```
+
+```{r}
+ggplot(data_selected, aes(x = wardsDestroyed, y = hasWon)) +
+  geom_point() +
+  labs(title = "Wykres kropkowy - wardsDestroyed vs. hasWon",
+       x = "wardsDestroyed", y = "hasWon")
+
+```
+
+```{R}
+ggplot(data_selected, aes(x = wardsDestroyed, y = factor(hasWon), color = factor(hasWon))) +
+  geom_point() +
+  labs(title = "Wykres kropkowy - hasWon vs. wardsDestroyed",
+       x = "wardsDestroyed", y = "hasWon")
+```
+```{r}
+# Usunięcie kolumny o nazwie "nazwa_kolumny"
+date2 <- subset(date, select = -c(gameId,lostTopBaseTurret,lostMidBaseTurret,destroyedTopBaseTurret,destroyedMidBaseTurret))
+```
+
+
+```{r}
+# Macierz korelacji z wybranych zmiennych
+cor_matrix_all <- cor(date2)
+```
+
+```{r}
+# Wygenerowanie macierzy koleracji dla wszystkich zmiennych do pliku PNG, gdyż jest za dużo zamiennych i tak będzie to szytelniejsze
+# Ustawienie rozmiaru wykresu
+png("wykres_korelacji.png", width = 1320, height = 1320)  # Dostosuj szerokość (width) i wysokość (height) według potrzeb
+# Tworzenie wykresu korelacji z wybranych zmiennych
+corrplot(cor_matrix_all, method = "color", type = "upper", tl.col = "black")
+# Zakończenie zapisu do pliku PNG
+dev.off()
+```
+```{r}
+# Wykres pokazujący istotność danych zmiennych co do wygrania rozgrywki
+
+# Obliczenie wartości bezwzględnych współczynników
+coef_abs <- abs(coef(model))
+
+# Wygenerowanie wykresu ważności cech
+barplot(coef_abs, main = "Feature Importance", xlab = "Features", ylab = "Absolute Coefficient Values")
+```
+
+```{r}
+# Funkcja do przekształcenia danych na format zrozumiały dla lime
+predict_fn <- function(x) {
+  predict(model, newdata = x, type = "response")
+}
+
+# Tworzenie explainera Lime
+explainer <- lime::lime(data, model = predict_fn)
+
+# Obliczanie wartości SHAP
+shap_values <- lime::lime_explanations(explainer)
+
+# Wygenerowanie wykresu SHAP
+plot(shap_values)
+```
+
